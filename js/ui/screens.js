@@ -331,7 +331,7 @@
   // ---------------- Multiplayer / Realms ----------------
   function MultiplayerScreen(game, parent) {
     Screen.call(this, game); this.parent = parent; this.t = 0; this.status = ''; this.statusColor = '#a0a0a0'; this.busy = false;
-    this.name = MC.Storage.get('mp.name', 'Player'); this.server = MC.Storage.get('mp.server', 'ws://localhost:8787'); this.room = MC.Storage.get('mp.room', ''); this.seed = ''; this.gameMode = 'survival';
+    this.name = MC.Storage.get('mp.name', 'Player'); this.server = MC.Storage.get('mp.server', 'wss://zinecraft-server.onrender.com'); this.room = MC.Storage.get('mp.room', ''); this.seed = ''; this.gameMode = 'survival';
   }
   extend(MultiplayerScreen, Screen); MultiplayerScreen.prototype.pausesGame = false;
   MultiplayerScreen.prototype.layout = function () {
@@ -350,7 +350,7 @@
   MultiplayerScreen.prototype.setStatus = function (text, isError) { this.status = text; this.statusColor = isError ? '#ff5555' : '#7CFC7C'; };
   MultiplayerScreen.prototype.validate = function () {
     this.name = (this.name || '').trim() || 'Player'; this.server = (this.server || '').trim();
-    if (!this.server) { this.setStatus('Enter a server address (e.g. ws://localhost:8787)', true); return false; }
+    if (!this.server) { this.setStatus('Enter a server address (e.g. wss://zinecraft-server.onrender.com)', true); return false; }
     if (!/^wss?:\/\//i.test(this.server)) { this.setStatus('Server address must start with ws:// or wss://', true); return false; }
     MC.Storage.set('mp.name', this.name); MC.Storage.set('mp.server', this.server); MC.Storage.set('mp.room', this.room);
     return true;
