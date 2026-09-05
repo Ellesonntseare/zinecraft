@@ -2,8 +2,64 @@
 (function () {
   var keys = {}, pressed = {}, released = {};
   var mouse = { x: 0, y: 0, dx: 0, dy: 0, buttons: 0, wheel: 0, clicks: [], locked: false, moved: false };
-  var textTarget = null; // callback receiving typed characters when a text field is focused
+  var textTarget = null; // callback receiving typed characters when a text field is focused (legacy path, kept as a fallback)
   var canvas = null;
+
+  // ---- real (invisible) HTML text input backing the canvas text fields ----
+  // Using an actual <input> gets us free, reliable native typing, native
+  // copy/paste (no clipboard-permission prompts), IME support, and a mobile
+  // on-screen keyboard — none of which a raw keydown listener can guarantee.
+  var hiddenInput = null;
+  var realInput = null; // { onChange(value), onControl(key) } while a field is focused
+
+  function ensureHiddenInput() {
+    if (hiddenInput) return hiddenInput;
+    hiddenInput = document.createElement('input');
+    hiddenInput.type = 'text';
+    hiddenInput.autocomplete = 'off';
+    hiddenInput.autocorrect = 'off';
+    hiddenInput.autocapitalize = 'off';
+    hiddenInput.spellcheck = false;
+    hiddenInput.setAttribute('aria-hidden', 'true');
+    hiddenInput.setAttribute('tabindex', '-1');
+    hiddenInput.style.cssText = 'position:fixed;top:-1000px;left:0;width:1px;height:1px;opacity:0;padding:0;margin:0;border:none;font-size:16px;pointer-events:none;';
+    document.body.appendChild(hiddenInput);
+    hiddenInput.addEventListener('input', function () {
+      if (realInput && realInput.onChange) realInput.onChange(hiddenInput.value);
+    });
+    hiddenInput.addEventListener('keydown', function (e) {
+      if (!realInput) return;
+      var key = null;
+      if (e.key === 'Enter') key = '\n';
+      else if (e.key === 'Escape') key = '\x1b';
+      else if (e.key === 'Tab') key = '\t';
+      else if (e.key === 'ArrowUp') key = '\x13';
+      else if (e.key === 'ArrowDown') key = '\x14';
+      if (key) { e.preventDefault(); if (realInput.onControl) realInput.onControl(key); }
+      e.stopPropagation(); // don't let WASD etc. leak through to the game while typing
+    });
+    return hiddenInput;
+  }
+  // onChange(value) fires on every native edit (typing, paste, IME, autofill).
+  // onControl(key) fires for Enter/Escape/Tab/ArrowUp/ArrowDown as the same
+  // single-char codes the old keydown path used, so callers don't need to change.
+  function focusRealInput(initialValue, onChange, onControl) {
+    ensureHiddenInput();
+    realInput = { onChange: onChange, onControl: onControl };
+    hiddenInput.value = initialValue || '';
+    try { hiddenInput.focus({ preventScroll: true }); } catch (e) { hiddenInput.focus(); }
+    var len = hiddenInput.value.length;
+    try { hiddenInput.setSelectionRange(len, len); } catch (e) { }
+  }
+  function updateRealInputValue(v) {
+    if (!hiddenInput) return;
+    hiddenInput.value = v;
+    var len = v.length; try { hiddenInput.setSelectionRange(len, len); } catch (e) { }
+  }
+  function blurRealInput() {
+    realInput = null;
+    if (hiddenInput) hiddenInput.blur();
+  }
   var BIND = {
     forward: 'KeyW', back: 'KeyS', left: 'KeyA', right: 'KeyD', jump: 'Space', sneak: 'ShiftLeft', sprint: 'ControlLeft',
     inventory: 'KeyE', drop: 'KeyQ', chat: 'KeyT', command: 'Slash', debug: 'F3', hideGui: 'F1', perspective: 'F5', fullscreen: 'F11', swapHands: 'KeyF', pickBlock: 'MouseMiddle'
@@ -35,6 +91,21 @@
       var r = canvas.getBoundingClientRect(); mouse.x = e.clientX - r.left; mouse.y = e.clientY - r.top;
       mouse.clicks.push({ button: e.button, x: mouse.x, y: mouse.y, down: true });
       if (e.button === 1) e.preventDefault();
+      // Focus the real hidden input synchronously, inside this actual user
+      // gesture, if the click landed on a text field. This is required for
+      // mobile browsers to pop up the on-screen keyboard — doing it later
+      // (e.g. next animation frame) often doesn't count as a user gesture.
+      if (e.button === 0 && MC.activeScreen && MC.Gui) {
+        var gx = mouse.x / MC.Gui.S, gy = mouse.y / MC.Gui.S;
+        var s = MC.activeScreen, widgets = s.widgets || [];
+        for (var i = widgets.length - 1; i >= 0; i--) {
+          var w = widgets[i];
+          if (w.type === 'field' && w.visible && w.enabled && gx >= w.x && gy >= w.y && gx < w.x + w.w && gy < w.y + w.h) {
+            if (s.setFocus) s.setFocus(w);
+            break;
+          }
+        }
+      }
     });
     document.addEventListener('mouseup', function (e) { mouse.buttons &= ~(1 << e.button); mouse.clicks.push({ button: e.button, x: mouse.x, y: mouse.y, down: false }); });
     document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
@@ -56,5 +127,6 @@
   function injectMouse(dx, dy) { mouse.dx += dx; mouse.dy += dy; }
   function setTextTarget(fn) { textTarget = fn; }
   MC.Input = { init: init, lock: lock, unlock: unlock, down: down, pressed: wasPressed, keys: keys, mouse: mouse, endFrame: endFrame, injectMouse: injectMouse, setTextTarget: setTextTarget, BIND: BIND, onUnlock: null,
+    focusRealInput: focusRealInput, updateRealInputValue: updateRealInputValue, blurRealInput: blurRealInput,
     get locked() { return mouse.locked; }, simulateLock: false };
 })();
