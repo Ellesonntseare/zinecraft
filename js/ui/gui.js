@@ -80,7 +80,23 @@
   Screen.prototype.field = function (x, y, w, h, text, opts) { var f = Object.assign({ type: 'field', x: x, y: y, w: w, h: h, text: text || '', maxLen: 32, visible: true, enabled: true }, opts || {}); this.widgets.push(f); return f; };
   Screen.prototype.setFocus = function (f) {
     if (this.focus === f) return; this.focus = f; var self = this;
-    if (f) MC.Input.setTextTarget(function (ch) { self.typed(ch); }); else MC.Input.setTextTarget(null);
+    if (f) {
+      MC.Input.setTextTarget(function (ch) { self.typed(ch); }); // legacy fallback path
+      MC.Input.focusRealInput(f.text, function (rawValue) {
+        // Apply the field's maxLen/filter to whatever the real <input> now
+        // holds (covers typing, native paste, IME, autofill — anything).
+        var cleaned = '';
+        for (var i = 0; i < rawValue.length && cleaned.length < f.maxLen; i++) {
+          var c = rawValue[i];
+          if (c >= ' ' && (!f.filter || f.filter(c))) cleaned += c;
+        }
+        if (cleaned !== rawValue) MC.Input.updateRealInputValue(cleaned); // trim rejected chars visually too
+        if (cleaned !== f.text) { f.text = cleaned; if (f.onChange) f.onChange(f.text); }
+      }, function (ctrl) { self.typed(ctrl); });
+    } else {
+      MC.Input.setTextTarget(null);
+      MC.Input.blurRealInput();
+    }
   };
   Screen.prototype.typed = function (ch) {
     var f = this.focus; if (!f) return;
