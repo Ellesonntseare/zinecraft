@@ -4,17 +4,31 @@
   Chat.prototype.add = function (text) { this.messages.push({ text: text, time: this.game.time }); if (this.messages.length > 100) this.messages.shift(); };
   Chat.prototype.openChat = function (prefill) {
     var self = this; this.open = true; this.text = prefill || ''; this.histIdx = -1;
-    MC.Input.setTextTarget(function (ch) {
+    var legacy = function (ch) {
       if (ch === '\b') self.text = self.text.slice(0, -1);
       else if (ch === '\n') { self.submit(); }
       else if (ch === '\x1b') { self.close(); }
-      else if (ch === '\x13') { if (self.history.length) { self.histIdx = self.histIdx < 0 ? self.history.length - 1 : Math.max(0, self.histIdx - 1); self.text = self.history[self.histIdx]; } }
-      else if (ch === '\x14') { if (self.histIdx >= 0) { self.histIdx++; if (self.histIdx >= self.history.length) { self.histIdx = -1; self.text = ''; } else self.text = self.history[self.histIdx]; } }
+      else if (ch === '\x13') { self.historyUp(); }
+      else if (ch === '\x14') { self.historyDown(); }
       else if (ch === '\t') { self.autocomplete(); }
       else if (ch.length === 1 && ch >= ' ' && self.text.length < 256) self.text += ch;
+    };
+    MC.Input.setTextTarget(legacy); // legacy fallback path
+    MC.Input.focusRealInput(this.text, function (rawValue) {
+      var cleaned = rawValue.length > 256 ? rawValue.slice(0, 256) : rawValue;
+      if (cleaned !== rawValue) MC.Input.updateRealInputValue(cleaned);
+      self.text = cleaned;
+    }, function (ctrl) {
+      if (ctrl === '\n') self.submit();
+      else if (ctrl === '\x1b') self.close();
+      else if (ctrl === '\t') self.autocomplete();
+      else if (ctrl === '\x13') self.historyUp();
+      else if (ctrl === '\x14') self.historyDown();
     });
   };
-  Chat.prototype.close = function () { this.open = false; MC.Input.setTextTarget(null); this.game.onChatClosed(); };
+  Chat.prototype.historyUp = function () { if (this.history.length) { this.histIdx = this.histIdx < 0 ? this.history.length - 1 : Math.max(0, this.histIdx - 1); this.text = this.history[this.histIdx]; MC.Input.updateRealInputValue(this.text); } };
+  Chat.prototype.historyDown = function () { if (this.histIdx >= 0) { this.histIdx++; if (this.histIdx >= this.history.length) { this.histIdx = -1; this.text = ''; } else this.text = this.history[this.histIdx]; MC.Input.updateRealInputValue(this.text); } };
+  Chat.prototype.close = function () { this.open = false; MC.Input.setTextTarget(null); MC.Input.blurRealInput(); this.game.onChatClosed(); };
   Chat.prototype.submit = function () {
     var t = this.text.trim();
     if (t) {
@@ -29,6 +43,7 @@
     var t = this.text; if (t[0] !== '/') return; var parts = t.slice(1).split(' ');
     if (parts.length === 1) { var cmds = Object.keys(COMMANDS).filter(function (c) { return c.indexOf(parts[0]) === 0; }); if (cmds.length === 1) this.text = '/' + cmds[0] + ' '; else if (cmds.length) this.add('§7' + cmds.join(', ')); }
     else if (parts[0] === 'give' || parts[0] === 'summon' || parts[0] === 'setblock') { var pre = parts[parts.length - 1]; var src = parts[0] === 'summon' ? Object.keys(MC.Mobs.TYPES) : Object.keys(MC.ITEMS); var m = src.filter(function (n) { return n.indexOf(pre) === 0; }); if (m.length === 1) { parts[parts.length - 1] = m[0]; this.text = '/' + parts.join(' ') + ' '; } else if (m.length) this.add('§7' + m.slice(0, 12).join(', ') + (m.length > 12 ? ' ...' : '')); }
+    if (this.text !== t) MC.Input.updateRealInputValue(this.text);
   };
   var COMMANDS = {
     help: function (g, a, chat) { chat.add('§7Commands: /' + Object.keys(COMMANDS).join(', /')); },
